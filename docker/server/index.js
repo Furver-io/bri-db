@@ -8,12 +8,12 @@
 import { createDB } from '../../index.js';
 import { getState, deleteState } from './utils.js';
 import { handleRPC } from './handlers.js';
+import { loadSecurityConfig, authorizeUpgrade } from './security.js';
 
 const PORT = parseInt(process.env.PORT || '3000', 10);
 const DATA_DIR = process.env.DATA_DIR || '/data';
 const MAX_MEMORY_MB = parseInt(process.env.MAX_MEMORY_MB || '256', 10);
 const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || undefined;
-const AUTH_REQUIRED = process.env.AUTH_REQUIRED === 'true';
 
 let db;
 
@@ -41,10 +41,12 @@ async function initDatabase() {
 
 /**
  * Create Bun HTTP server with WebSocket support
+ * @param {Object} security - Access-control settings from `loadSecurityConfig`
  * @returns {Object} Server instance
  */
-function createServer() {
+function createServer(security) {
   return Bun.serve({
+    hostname: security.host,
     port: PORT,
 
     /**
@@ -66,8 +68,18 @@ function createServer() {
       }
 
       if (url.pathname === '/api/ape') {
+        // Host, Origin and token are checked before a socket exists, so a refused
+        // client never reaches the RPC handlers.
+        const verdict = authorizeUpgrade(req.headers, security);
+        if (!verdict.ok) {
+          return new Response(verdict.reason, {
+            status: verdict.status,
+            headers: verdict.status === 401 ? { 'WWW-Authenticate': 'Bearer' } : {}
+          });
+        }
         const upgraded = server.upgrade(req, {
-          data: { connectedAt: Date.now() }
+          data: { connectedAt: Date.now() },
+          ...(verdict.protocol && { headers: { 'Sec-WebSocket-Protocol': verdict.protocol } })
         });
         if (upgraded) return undefined;
         return new Response('WebSocket upgrade failed', { status: 500 });
@@ -164,13 +176,17 @@ async function main() {
   console.log('  BRI + api-ape Server');
   console.log('========================================');
 
+  // Fail closed before the database is touched: an unsafe combination of settings
+  // (non-loopback bind without a token, a short token) stops the process here.
+  const security = loadSecurityConfig(process.env);
+
   await initDatabase();
 
-  const server = createServer();
+  const server = createServer(security);
 
-  console.log(`[Server] Listening on http://localhost:${PORT}`);
-  console.log(`[Server] WebSocket endpoint: ws://localhost:${PORT}/api/ape`);
-  console.log(`[Server] Auth required: ${AUTH_REQUIRED}`);
+  console.log(`[Server] Listening on http://${security.host}:${server.port}`);
+  console.log(`[Server] WebSocket endpoint: ws://${security.host}:${server.port}/api/ape`);
+  console.log(`[Server] Auth token required: ${security.token !== null}`);
   console.log('========================================');
 
   process.on('SIGINT', async () => {

@@ -21,6 +21,10 @@ RUN mkdir -p /data
 ENV PORT=3000
 ENV DATA_DIR=/data
 ENV MAX_MEMORY_MB=256
+# A container must listen on all interfaces for the published port to reach it, and the
+# server refuses to start that way without AUTH_TOKEN (at least 16 characters): pass it
+# with `-e AUTH_TOKEN=...` or through docker-compose (see docker/README.md).
+ENV HOST=0.0.0.0
 
 # Expose WebSocket/HTTP port
 EXPOSE 3000

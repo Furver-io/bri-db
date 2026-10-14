@@ -24,7 +24,8 @@ import { runAdvancedExamples } from './06-advanced.js';
 async function main() {
   printBanner();
 
-  const db = await apiDB();
+  // BRI_URL / AUTH_TOKEN point the examples at a server that requires a token.
+  const db = await apiDB(process.env.BRI_URL, { token: process.env.AUTH_TOKEN });
 
   // Run all example modules
   const entities = await runCrudExamples(db);

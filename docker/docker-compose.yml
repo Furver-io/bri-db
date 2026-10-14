@@ -4,7 +4,8 @@ services:
   bri:
     build: .
     ports:
-      - "${PORT:-3000}:3000"
+      # Published on this machine only; set BIND_ADDRESS=0.0.0.0 to publish further.
+      - "${BIND_ADDRESS:-127.0.0.1}:${PORT:-3000}:3000"
     volumes:
       - bri-data:/data
     environment:
@@ -12,7 +13,14 @@ services:
       - DATA_DIR=/data
       - MAX_MEMORY_MB=${MAX_MEMORY_MB:-256}
       - ENCRYPTION_KEY=${ENCRYPTION_KEY:-}
-      - AUTH_REQUIRED=${AUTH_REQUIRED:-false}
+      - HOST=0.0.0.0
+      # Required: the server refuses to start without it. Generate with: openssl rand -hex 32
+      - AUTH_TOKEN=${AUTH_TOKEN:?set AUTH_TOKEN (at least 16 characters) in the environment or docker/.env}
+      - AUTH_REQUIRED=${AUTH_REQUIRED:-true}
+      # Optional comma-separated allow-lists: Host names this server answers to, and
+      # browser origins that may connect (non-browser clients send no Origin).
+      - ALLOWED_HOSTS=${ALLOWED_HOSTS:-}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-}
     restart: unless-stopped
 
 volumes:

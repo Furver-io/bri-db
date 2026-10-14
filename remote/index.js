@@ -20,11 +20,12 @@
 
 import { createOperationProxy } from './proxy.js';
 import { wrapEntity } from './entity.js';
+import { tokenSubprotocols } from './auth-protocol.js';
 
 /**
  * Create a remote BRI database connection
  * @param {string} url - WebSocket URL (e.g., 'ws://localhost:3000')
- * @param {Object} options - Connection options
+ * @param {Object} options - Connection options: `timeout` (RPC timeout in ms), `token` (the server's AUTH_TOKEN, offered as a WebSocket sub-protocol, never in the URL)
  * @returns {Promise<Object>} - Database interface (same API as local BRI)
  */
 export async function createRemoteDB(url, options = {}) {
@@ -44,7 +45,9 @@ export async function createRemoteDB(url, options = {}) {
    */
   function connect() {
     return new Promise((resolve, reject) => {
-      socket = new WebSocket(wsUrl);
+      socket = options.token === undefined
+        ? new WebSocket(wsUrl)
+        : new WebSocket(wsUrl, tokenSubprotocols(options.token));
 
       socket.onopen = () => {
         connected = true;
@@ -245,10 +248,11 @@ export async function createRemoteDB(url, options = {}) {
  * apiDB - Alias for createRemoteDB with default URL
  *
  * @param {string} url - WebSocket URL (default: 'ws://localhost:3000')
+ * @param {Object} [options] - Connection options, as for createRemoteDB (for example `{ token }`)
  * @returns {Promise<Object>} - Database interface
  */
-export async function apiDB(url = 'ws://localhost:3000') {
-  return createRemoteDB(url);
+export async function apiDB(url = 'ws://localhost:3000', options = {}) {
+  return createRemoteDB(url, options);
 }
 
 export default createRemoteDB;

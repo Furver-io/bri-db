@@ -9,6 +9,9 @@ import { apiDB } from 'bri/remote';
 
 const db = await apiDB('ws://localhost:3000');
 
+// A server started with AUTH_TOKEN needs the same token from every client:
+// const db = await apiDB('ws://localhost:3000', { token: process.env.AUTH_TOKEN });
+
 // Same API as local BRI!
 const user = await db.add.user({ name: 'Alice', age: 28 });
 const post = await db.get.post(postId).and.author;

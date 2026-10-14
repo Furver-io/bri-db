@@ -4,6 +4,7 @@
 e2e/
 ├── crud.test.js
 ├── persistence.test.js
+├── remote-server-security.test.js
 ├── security-stored-data.test.js
 ├── transactions.test.js
 ├── middleware.test.js
@@ -33,6 +34,9 @@ Transaction operations - rec, fin, nop, pop with isolation testing.
 
 ### `security-stored-data.test.js`
 Security stories for data read back from a data folder - a hostile cold-tier file, snapshot or WAL line cannot construct a global, change a prototype or decode one key to two values; standard errors still round-trip.
+
+### `remote-server-security.test.js`
+Security stories for the remote WebSocket server - refuses to start unsafely, loopback by default, 401 without the token, 403 for a foreign Host or Origin, token round-trip through `createRemoteDB(url, { token })` (end-to-end stories run the real server under Bun and are skipped when `bun` is absent).
 
 ### `middleware.test.js`
 Middleware plugin system - use, remove, hooks, validation.

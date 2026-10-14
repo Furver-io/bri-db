@@ -4,6 +4,7 @@
 remote/
 ├── index.js
 ├── connection.js
+├── auth-protocol.js
 ├── proxy.js
 ├── entity.js
 └── readMe.md
@@ -17,11 +18,26 @@ Remote database client entry point. Provides BRI API over WebSocket via api-ape.
 
 **Exports:**
 - `createRemoteDB(url, options)` - Create remote database connection
-- `apiDB(url?)` - Alias with default URL (ws://localhost:3000)
+- `apiDB(url?, options?)` - Alias with default URL (ws://localhost:3000)
 - `default` - Alias for createRemoteDB
 
 **Options:**
 - `timeout` - RPC timeout in milliseconds (default: 30000)
+- `token` - The server's `AUTH_TOKEN`; offered as a WebSocket sub-protocol (never in the URL)
+
+### `auth-protocol.js`
+
+Sub-protocol codec that carries the remote access token, shared by the client and the reference server (`docker/server`).
+
+**Exports:**
+- `tokenSubprotocols(token)` - `['bri', 'bri-token.<base64url(token)>']`, the list a client offers on connect
+- `offeredProtocols(header)` - Split a `Sec-WebSocket-Protocol` header
+- `tokenFromProtocols(protocols)` - Decode the offered token (null when absent or malformed)
+- `WS_SUBPROTOCOL`, `TOKEN_PROTOCOL_PREFIX` - The protocol names
+
+**Purpose:**
+- Browsers cannot set headers on a WebSocket, but can offer sub-protocols; the token stays out of
+  the URL, access logs and `Referer`. The server answers with `bri` only.
 
 ### `connection.js`
 

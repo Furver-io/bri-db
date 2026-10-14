@@ -5,12 +5,16 @@
  * event subscription for broadcasts, and connection management.
  */
 
+import { tokenSubprotocols } from './auth-protocol.js';
+
 /**
  * Create a WebSocket connection to the BRI server
  * @param {string} url - WebSocket URL (e.g., 'ws://localhost:3000/api/ape')
+ * @param {Object} [options] - Connection options
+ * @param {string} [options.token] - Server access token, offered as a WebSocket sub-protocol (never in the URL)
  * @returns {Promise<Object>} Connection interface with send, on, close methods
  */
-export async function createConnection(url) {
+export async function createConnection(url, options = {}) {
   let ws;
   let queryCounter = 0;
   const pending = new Map();    // queryId → { resolve, reject, timer }
@@ -25,7 +29,9 @@ export async function createConnection(url) {
    */
   function connect() {
     return new Promise((resolve, reject) => {
-      ws = new WebSocket(url);
+      ws = options.token === undefined
+        ? new WebSocket(url)
+        : new WebSocket(url, tokenSubprotocols(options.token));
 
       ws.onopen = () => {
         console.log('[BRI Remote] Connected to', url);

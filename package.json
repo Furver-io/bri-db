@@ -6,7 +6,7 @@
   "main": "index.js",
   "repository": {
     "type": "git",
-    "url": "https://github.com/codemeasandwich/BRI"
+    "url": "git+https://github.com/Furver-io/bri-db.git"
   },
   "exports": {
     ".": "./index.js",

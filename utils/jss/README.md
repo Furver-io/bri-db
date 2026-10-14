@@ -31,3 +31,18 @@ const decoded = jss.parse(encoded);
 - **Set** - Converted to/from array
 - **undefined** - Explicitly preserved
 - **Circular references** - Handled via path pointers
+
+## Decoding untrusted data
+
+A snapshot, a WAL line and a cold-tier `.jss` file are all read back through `parse`, so
+anything that can drop a file into a data folder reaches the decoder. It therefore:
+
+- builds an `E` (Error) value only for the standard Error classes (`Error`, `TypeError`,
+  `RangeError`, `SyntaxError`, `ReferenceError`, `EvalError`, `URIError`, `AggregateError`);
+  any other stored name (a custom class, `Worker`, `WebSocket`) decodes to a plain `Error`
+  whose `name` is that text;
+- matches tags, keys and pointer paths against own properties only, so `constructor`,
+  `toString` or `__proto__` reach nothing; a `__proto__` key is an ordinary key;
+- writes a pointer into the decoded object that held it, never by walking a stored path;
+- throws `JSS decode: duplicate key "a"` when `a` and `a<!M>` (two keys that decode to one
+  name) appear together, and when a pointer value is not a path string.

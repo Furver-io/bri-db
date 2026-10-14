@@ -4,6 +4,7 @@
 e2e/
 ├── crud.test.js
 ├── persistence.test.js
+├── security-stored-data.test.js
 ├── transactions.test.js
 ├── middleware.test.js
 ├── reactive.test.js
@@ -29,6 +30,9 @@ WAL replay and snapshot recovery after simulated crashes.
 
 ### `transactions.test.js`
 Transaction operations - rec, fin, nop, pop with isolation testing.
+
+### `security-stored-data.test.js`
+Security stories for data read back from a data folder - a hostile cold-tier file, snapshot or WAL line cannot construct a global, change a prototype or decode one key to two values; standard errors still round-trip.
 
 ### `middleware.test.js`
 Middleware plugin system - use, remove, hooks, validation.

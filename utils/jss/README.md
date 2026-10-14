@@ -44,5 +44,8 @@ anything that can drop a file into a data folder reaches the decoder. It therefo
 - matches tags, keys and pointer paths against own properties only, so `constructor`,
   `toString` or `__proto__` reach nothing; a `__proto__` key is an ordinary key;
 - writes a pointer into the decoded object that held it, never by walking a stored path;
+- offers `assertNoTagKeys(value)`, which the engine calls on data a caller supplies (`add`, `set`,
+  `save`): a field whose name ends in a type tag (`name<!X>`) would read back as a typed value,
+  and `a` plus `a<!M>` in one document could never be read again;
 - throws `JSS decode: duplicate key "a"` when `a` and `a<!M>` (two keys that decode to one
   name) appear together, and when a pointer value is not a path string.

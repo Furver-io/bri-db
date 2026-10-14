@@ -49,15 +49,15 @@ function listOf(value) {
 
 /**
  * Reduce a `Host` header (or an allow-list entry) to its host name, dropping any port.
+ * Anything that is not `name`, `name:port`, `[v6]` or `[v6]:port` yields an empty string,
+ * which no allow-list contains.
  *
  * @param {string} hostHeader - `example.com:3000`, `[::1]:3000` or `localhost`
- * @returns {string} Lower-cased host name; IPv6 keeps its brackets
+ * @returns {string} Lower-cased host name (IPv6 keeps its brackets), or '' when malformed
  */
 function hostnameOf(hostHeader) {
-  const h = hostHeader.trim().toLowerCase();
-  if (h.startsWith('[')) return h.slice(0, h.indexOf(']') + 1);
-  const colon = h.indexOf(':');
-  return colon === -1 ? h : h.slice(0, colon);
+  const match = /^(\[[0-9a-f:.]+\]|[a-z0-9.-]+)(?::\d{1,5})?$/.exec(hostHeader.trim().toLowerCase());
+  return match ? match[1] : '';
 }
 
 /**
@@ -89,7 +89,7 @@ export function loadSecurityConfig(env) {
   if (!loopback && token === null) {
     throw new Error(`Refusing to listen on ${host} without AUTH_TOKEN: set AUTH_TOKEN, or bind HOST=127.0.0.1`);
   }
-  const hosts = listOf(env.ALLOWED_HOSTS).map(hostnameOf);
+  const hosts = listOf(env.ALLOWED_HOSTS).map(hostnameOf).filter(Boolean);
   return {
     host,
     token,
@@ -127,7 +127,7 @@ function sameToken(presented, expected) {
  * @returns {string|null} Presented token, or null when none
  */
 function presentedToken(headers, protocols) {
-  const bearer = /^Bearer (.+)$/.exec(headers.get('authorization') ?? '');
+  const bearer = /^bearer (.+)$/i.exec(headers.get('authorization') ?? '');
   return bearer ? bearer[1] : tokenFromProtocols(protocols);
 }
 
@@ -136,7 +136,7 @@ function presentedToken(headers, protocols) {
  *
  * @param {Object} headers - Request headers (`Headers`-like: `get(name)` returns the value or null)
  * @param {{token: string|null, allowedHosts: string[]|null, allowedOrigins: string[]}} config - From {@link loadSecurityConfig}
- * @returns {{ok: true, protocol: string|null} | {ok: false, status: number, reason: string}} Verdict; `protocol` is the sub-protocol to answer with
+ * @returns {{ok: true, protocol: string|null} | {ok: false, status: number, reason: string}} Verdict; `protocol` is the sub-protocol to answer with (null when the client offered none)
  */
 export function authorizeUpgrade(headers, config) {
   if (config.allowedHosts !== null && !config.allowedHosts.includes(hostnameOf(headers.get('host') ?? ''))) {
@@ -147,11 +147,16 @@ export function authorizeUpgrade(headers, config) {
     return { ok: false, status: 403, reason: 'Origin not allowed' };
   }
   const protocols = offeredProtocols(headers.get('sec-websocket-protocol'));
+  // The server answers with `bri` only. A client that offers sub-protocols without `bri`
+  // would otherwise get its own list echoed back by the runtime (token included).
+  if (protocols.length > 0 && !protocols.includes(WS_SUBPROTOCOL)) {
+    return { ok: false, status: 400, reason: 'Unsupported sub-protocol' };
+  }
   if (config.token !== null) {
     const presented = presentedToken(headers, protocols);
     if (presented === null || !sameToken(presented, config.token)) {
       return { ok: false, status: 401, reason: 'Unauthorized' };
     }
   }
-  return { ok: true, protocol: protocols.includes(WS_SUBPROTOCOL) ? WS_SUBPROTOCOL : null };
+  return { ok: true, protocol: protocols.length > 0 ? WS_SUBPROTOCOL : null };
 }

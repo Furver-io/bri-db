@@ -25,6 +25,7 @@ ENV MAX_MEMORY_MB=256
 # server refuses to start that way without AUTH_TOKEN (at least 16 characters): pass it
 # with `-e AUTH_TOKEN=...` or through docker-compose (see docker/README.md).
 ENV HOST=0.0.0.0
+ENV NODE_ENV=production
 
 # Expose WebSocket/HTTP port
 EXPOSE 3000

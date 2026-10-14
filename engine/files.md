@@ -53,7 +53,7 @@ Helper utilities for object manipulation.
 - `stripDown$ID(obj)` - Convert nested objects to ID references
 - `attachToString(obj)` - Attach toString() returning $ID
 - `checkMatch(subset, source)` - Partial object matching
-- `buildOverlayObject(changes, source)` - Apply changes
+- `buildOverlayObject(changes, source)` - Apply changes (path segments match own properties only; `__proto__` and `constructor` cannot reach a prototype)
 - `isMatch(query, input)` - Deep equality check
 
 ### `operations.js`

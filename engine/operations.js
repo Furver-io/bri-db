@@ -61,7 +61,9 @@ export function createOperations(store, { genid, publish }) {
         txnId = opts.txnId;
       }
       const shortType = type2Short(type);
-      return genid(shortType)
+      return Promise.resolve()
+        .then(() => JSS.assertNoTagKeys(data))
+        .then(() => genid(shortType))
         .then(($ID) => {
           const percent = Object.assign({}, stripDown$ID(data));
           percent.$ID = $ID;
@@ -104,7 +106,9 @@ export function createOperations(store, { genid, publish }) {
         .then(jss => JSS.parse(jss))
         .then(targetDb => {
           const diff = buildOverlayObject(changes2save, targetDb);
-          const percent = Object.assign({}, targetDb, diff);
+          JSS.assertNoTagKeys(diff);
+          // Spread, not Object.assign: an own `__proto__` key in diff is data, not a prototype.
+          const percent = { ...targetDb, ...diff };
 
           if (true === saveBy) {
             saveBy = target.$ID;
@@ -156,6 +160,7 @@ export function createOperations(store, { genid, publish }) {
       }
       return wrapper.get(type, replaceWith.$ID)
         .then((target) => {
+          JSS.assertNoTagKeys(replaceWith);
           replaceWith.createdAt = target.createdAt;
           return store.set(replaceWith.$ID, JSS.stringify(replaceWith)).then(() => {
             publish(target, replaceWith, 'UPDATE', saveBy, tag);

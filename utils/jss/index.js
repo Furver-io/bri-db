@@ -9,6 +9,41 @@
 import { hasOwn, setKey } from './safe-keys.js';
 
 /**
+ * Refuse a document that holds a field name ending in a type tag (`name<!X>`).
+ *
+ * Call this on data a caller supplies, before it is stored. Such a field is stored as
+ * written and read back as a typed value (`{ "a<!D>": 5 }` becomes a Date under `a`), and
+ * a document holding both `a` and `a<!M>` is refused by {@link decode}, so it could be
+ * written but never read, snapshotted or deleted again. Not part of `encode`, which also
+ * re-encodes text that is already tagged (the cold tier stores tagged keys on purpose).
+ * Descends plain objects and arrays only (a Map's keys are never read as tags) and
+ * tolerates cycles.
+ * @param {*} value - Caller-supplied document or fragment
+ * @returns {void}
+ * @throws {Error} When a field name ends in a `<!tag>` suffix
+ */
+function assertNoTagKeys(value) {
+  const seen = new Set();
+  /**
+   * Check one node and everything below it.
+   * @param {*} node - Value to inspect
+   * @returns {void}
+   */
+  function walk(node) {
+    if (node === null || typeof node !== 'object' || seen.has(node)) return;
+    if (node instanceof Date || node instanceof Map || node instanceof Set || node instanceof Error) return;
+    seen.add(node);
+    for (const key of Object.keys(node)) {
+      if (parseKeyWithTags(key)[1] !== undefined) {
+        throw new Error(`JSS: field name "${key}" ends in a type tag (<!...>); rename the field`);
+      }
+      walk(node[key]);
+    }
+  }
+  walk(value);
+}
+
+/**
  * Encode a plain object or array into JSS tagged key/value form before JSON serialization.
  * @param {object|Array} obj - Root value to encode
  * @returns {object|Array} Encoded structure using `<!tag>` key suffixes for typed leaves
@@ -262,4 +297,4 @@ function changeAttributeReference(obj, [refPath, parent, key]) {
   return obj;
 }
 
-export default { parse, stringify, encode, decode };
+export default { parse, stringify, encode, decode, assertNoTagKeys };

@@ -1,8 +1,9 @@
 /**
- * Engine helper functions
+ * @file Engine helper functions
  */
 
 import { undeclared } from './constants.js';
+import { hasOwn, setKey } from '../utils/jss/safe-keys.js';
 
 /**
  * Strip nested objects with $ID to just their ID reference
@@ -84,7 +85,10 @@ export function checkMatch(subset, source) {
 }
 
 /**
- * Build an overlay object from changes
+ * Build an overlay object from changes. Path segments are field names chosen by the
+ * writer (a remote peer can name `__proto__` or `constructor`), so segments are matched
+ * against OWN properties only and keys are set with `setKey`: a segment can never reach
+ * `Object.prototype` or a built-in constructor.
  * @param {Array} changes - Array of [path, value] tuples
  * @param {Object} source - Original source object
  * @returns {Object} - Overlay object with changes applied
@@ -96,13 +100,13 @@ export function buildOverlayObject(changes, source) {
     let walkwithsource = source;
 
     for (let count = 0; count < path.length - 1; count++) {
-      walkwithsource = walkwithsource && walkwithsource[path[count]];
-      if (!obj[path[count]]) {
+      walkwithsource = walkwithsource && hasOwn(walkwithsource, path[count]) && walkwithsource[path[count]];
+      if (!hasOwn(obj, path[count]) || !obj[path[count]]) {
         const isArray = "number" === typeof path[count + 1];
         if (walkwithsource) {
-          obj[path[count]] = isArray ? [...walkwithsource] : { ...walkwithsource };
+          setKey(obj, path[count], isArray ? [...walkwithsource] : { ...walkwithsource });
         } else {
-          obj[path[count]] = isArray ? [] : {};
+          setKey(obj, path[count], isArray ? [] : {});
         }
       }
       obj = obj[path[count]];
@@ -115,7 +119,7 @@ export function buildOverlayObject(changes, source) {
         delete obj[path[path.length - 1]];
       }
     } else {
-      obj[path[path.length - 1]] = value;
+      setKey(obj, path[path.length - 1], value);
     }
   }
   return result;
@@ -147,7 +151,7 @@ export function mapObjectOrArray(objOrArray, path, oldRef) {
     .reduce((entries, [prop, val], i, a) => {
       const propPath = [...path, Array.isArray(objOrArray) ? +prop : prop];
       return entries.concat(isObjectOrArray(val) ?
-        mapObjectOrArray(val, propPath, oldRef.hasOwnProperty(prop) ? oldRef[prop] : undeclared)
+        mapObjectOrArray(val, propPath, hasOwn(oldRef, prop) ? oldRef[prop] : undeclared)
         : [[propPath, val, oldRef]]);
     }, []);
 }
@@ -162,6 +166,13 @@ export function mapObjectOrArray(objOrArray, path, oldRef) {
 export function findMatchingItem(ids, testFn, findOne) {
   let index = 1;
 
+  /**
+   * Drives the recursive iteration: tests the current item, advances to
+   * the next id (loaded via `findOne`), and resolves with the first
+   * match or null.
+   * @param {*} item - Current candidate
+   * @returns {Promise|*} - Resolved match, the eager match, or null
+   */
   const loadNrunFn = (item) => {
     let dataPromise = null;
     if (index < ids.length) {

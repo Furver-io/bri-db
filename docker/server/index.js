@@ -48,6 +48,17 @@ function createServer(security) {
   return Bun.serve({
     hostname: security.host,
     port: PORT,
+    // Bun's development mode answers a failing request with an HTML page that embeds the
+    // server source and its absolute paths, before any access check runs.
+    development: false,
+
+    /**
+     * Last-resort handler: a plain 500 that carries no source, path or stack.
+     * @returns {Response} Generic error response
+     */
+    error() {
+      return new Response('Internal Server Error', { status: 500 });
+    },
 
     /**
      * Handle HTTP requests
@@ -56,7 +67,12 @@ function createServer(security) {
      * @returns {Response|undefined} HTTP response
      */
     async fetch(req, server) {
-      const url = new URL(req.url);
+      let url;
+      try {
+        url = new URL(req.url);
+      } catch {
+        return new Response('Bad Request', { status: 400 });
+      }
 
       if (url.pathname === '/api/ape/ping') {
         return new Response(JSON.stringify({

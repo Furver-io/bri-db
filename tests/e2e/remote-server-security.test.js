@@ -140,10 +140,24 @@ describe('A connection arrives at the upgrade', () => {
     expect(authorizeUpgrade(headers({ 'sec-websocket-protocol': 'bri, bri-token.***' }), guarded).status).toBe(401);
   });
 
+  test('offering sub-protocols without bri is refused with 400, so none is echoed back', () => {
+    expect(authorizeUpgrade(headers({ 'sec-websocket-protocol': tokenProtocol }), guarded))
+      .toEqual({ ok: false, status: 400, reason: 'Unsupported sub-protocol' });
+    expect(authorizeUpgrade(headers({ host: 'localhost', 'sec-websocket-protocol': 'chat' }), open).status).toBe(400);
+  });
+
+  test('a Host that is not name[:port] is refused, whatever follows the colon', () => {
+    for (const host of ['localhost:80@evil.com', 'localhost:abc', '[::1]evil', 'localhost:1:2', '[', '', 'local host']) {
+      expect(authorizeUpgrade(headers({ host }), open).status).toBe(403);
+    }
+    expect(loadSecurityConfig({ ALLOWED_HOSTS: '[,db.example.com' }).allowedHosts).toEqual(['db.example.com']);
+  });
+
   test('the token is accepted from the sub-protocol or a Bearer header', () => {
     expect(authorizeUpgrade(headers({ 'sec-websocket-protocol': `bri, ${tokenProtocol}` }), guarded).ok).toBe(true);
     expect(authorizeUpgrade(headers({ authorization: `Bearer ${TOKEN}` }), guarded))
       .toEqual({ ok: true, protocol: null });
+    expect(authorizeUpgrade(headers({ authorization: `bearer ${TOKEN}` }), guarded).ok).toBe(true);
   });
 });
 
@@ -175,6 +189,19 @@ describe('The token travels as a WebSocket sub-protocol', () => {
 });
 
 /**
+ * The test process environment without the server's own settings, so a developer who
+ * has `AUTH_TOKEN` or `HOST` exported in the shell still gets the defaults under test.
+ * @returns {Record<string, string|undefined>} Environment for the spawned server
+ */
+function inheritedEnv() {
+  const env = { ...process.env };
+  for (const name of ['HOST', 'PORT', 'DATA_DIR', 'AUTH_TOKEN', 'AUTH_REQUIRED', 'ALLOWED_HOSTS', 'ALLOWED_ORIGINS', 'ENCRYPTION_KEY', 'MAX_MEMORY_MB']) {
+    delete env[name];
+  }
+  return env;
+}
+
+/**
  * Start the real server under Bun on a free loopback-friendly port.
  * @param {Record<string, string>} env - Server settings
  * @returns {Promise<{port: number, host: string, output: function(): string, exited: Promise<number>, stop: function(): Promise<void>}>} Handle
@@ -183,7 +210,7 @@ async function startServer(env) {
   const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'bri-remote-security-'));
   const child = spawn('bun', ['docker/server/index.js'], {
     cwd: ROOT,
-    env: { ...process.env, PORT: '0', DATA_DIR: dataDir, MAX_MEMORY_MB: '64', ...env },
+    env: { ...inheritedEnv(), PORT: '0', DATA_DIR: dataDir, MAX_MEMORY_MB: '64', ...env },
     stdio: ['ignore', 'pipe', 'pipe']
   });
   let text = '';
@@ -205,7 +232,9 @@ async function startServer(env) {
     exited,
     stop: async () => {
       child.kill('SIGTERM');
+      const killer = setTimeout(() => child.kill('SIGKILL'), 5000);
       await exited;
+      clearTimeout(killer);
       await fs.rm(dataDir, { recursive: true, force: true }).catch(() => {});
     }
   };
@@ -245,6 +274,23 @@ function upgrade(port, extra = {}) {
 }
 
 /**
+ * Send raw bytes to the server and return the response head and body as text.
+ * @param {number} port - Server port
+ * @param {string} request - Raw request text
+ * @returns {Promise<string>} Whatever the server wrote before closing
+ */
+function rawRequest(port, request) {
+  return new Promise((resolve) => {
+    let text = '';
+    const socket = net.connect({ port, host: '127.0.0.1' }, () => socket.write(request));
+    socket.setTimeout(3000, () => socket.destroy());
+    socket.on('data', (chunk) => { text += chunk; });
+    socket.on('close', () => resolve(text));
+    socket.on('error', () => resolve(text));
+  });
+}
+
+/**
  * First non-internal IPv4 address of this machine, when it has one.
  * @returns {string|undefined} Address
  */
@@ -275,7 +321,7 @@ const WITH_TOKEN = { 'Sec-WebSocket-Protocol': `bri, ${tokenSubprotocols(TOKEN)[
 bunDescribe('The real server, started with no settings (local development)', () => {
   let server;
   beforeAll(async () => { server = await startServer({}); }, 30000);
-  afterAll(async () => { await server.stop(); });
+  afterAll(async () => { await server?.stop(); });
 
   test('listens on loopback only and says so', async () => {
     expect(server.host).toBe('127.0.0.1');
@@ -298,6 +344,30 @@ bunDescribe('The real server, started with no settings (local development)', () 
     expect((await upgrade(server.port, { Host: 'evil.example' })).status).toBe(403);
   });
 
+  test('a peer cannot break the server for everyone through field names', async () => {
+    const db = await createRemoteDB(`ws://127.0.0.1:${server.port}`);
+    const added = await db.add.pal({ name: 'Ann', a: { k: 1 } });
+    await db._rpc('db/save', {
+      entityId: added.$ID,
+      changes: { a: JSON.parse('{"__proto__":{"toString":"x","isAdmin":true}}') }
+    }).catch(() => {});
+    const later = await db.add.pal({ name: 'Bob' });
+    expect((await db.get.pal(later.$ID)).name).toBe('Bob');
+    expect((await db.get.pal(added.$ID)).name).toBe('Ann');
+    await db.disconnect();
+  });
+
+  test('a malformed request gets a plain 400 with no source, path or stack', async () => {
+    const answer = await rawRequest(server.port, 'GET /api/ape HTTP/1.0\r\n\r\n');
+    expect(answer).toMatch(/^HTTP\/1\.[01] 400/);
+    expect(answer).not.toMatch(/index\.js|__bunfallback|\/Users\/|\/home\/|\/app\//);
+  });
+
+  test('a client offering sub-protocols without bri is refused, nothing is echoed', async () => {
+    const refused = await upgrade(server.port, { 'Sec-WebSocket-Protocol': 'bri-token.c2VjcmV0c2VjcmV0c2VjcmV0' });
+    expect(refused).toEqual({ status: 400, protocol: undefined });
+  });
+
   test('the health check stays open and carries nothing private', async () => {
     const res = await fetch(`http://127.0.0.1:${server.port}/api/ape/ping`);
     expect(res.status).toBe(200);
@@ -315,7 +385,7 @@ bunDescribe('The real server, started with a token on a non-loopback bind', () =
       ALLOWED_ORIGINS: 'https://app.example.com'
     });
   }, 30000);
-  afterAll(async () => { await server.stop(); });
+  afterAll(async () => { await server?.stop(); });
 
   test('a client with no token gets 401 and never reaches the database', async () => {
     const refused = await upgrade(server.port);

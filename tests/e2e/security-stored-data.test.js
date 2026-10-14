@@ -283,6 +283,61 @@ describe('Pointers that lead nowhere', () => {
   });
 });
 
+describe('A writer cannot reach built-in prototypes through field names', () => {
+  test.each([
+    ['__proto__', '{"__proto__":{"polluted":1}}'],
+    ['constructor.prototype', '{"constructor":{"prototype":{"polluted":1}}}'],
+    ['a nested __proto__', '{"deep":{"__proto__":{"polluted":1}}}'],
+    ['__proto__ inside an array', '{"list":[{"__proto__":{"polluted":1}}]}']
+  ])('saving a field with %s changes no prototype and no constructor', async (_name, json) => {
+    const db = await open(await dataFolder());
+    const doc = await db.add.user({ name: 'before', a: { k: 1 } });
+    doc.a = JSON.parse(json);
+    await doc.save();
+    expect({}.polluted).toBeUndefined();
+    expect(Object.polluted).toBeUndefined();
+    expect((await db.get.user(doc.$ID)).name).toBe('before');
+    await db.disconnect();
+  });
+
+  test('a top-level __proto__ field is data on the saved document, not its prototype', async () => {
+    const db = await open(await dataFolder());
+    const doc = await db.add.user({ name: 'kept' });
+    doc.extra = JSON.parse('{"__proto__":{"isAdmin":true}}');
+    const saved = await doc.save();
+    expect(saved.isAdmin).toBeUndefined();
+    expect(Object.getPrototypeOf(saved.extra)).toBe(Object.prototype);
+    await db.disconnect();
+  });
+});
+
+describe('A field name that reads back as a type tag is refused when written', () => {
+  test('JSS.assertNoTagKeys names the field, descends objects and arrays, ignores Maps, tolerates cycles', () => {
+    expect(() => JSS.assertNoTagKeys({ price: 1, 'when<!D>': 5 })).toThrow(/field name "when<!D>" ends in a type tag/);
+    expect(() => JSS.assertNoTagKeys({ list: [{ ok: 1 }, { 'a<!M>': {} }] })).toThrow(/a<!M>/);
+    const cyclic = { name: 'loop', when: new Date(), tags: new Set(['x<!D>']), map: new Map([['k<!D>', 1]]), n: null, s: 'a<!D>' };
+    cyclic.self = cyclic;
+    expect(() => JSS.assertNoTagKeys(cyclic)).not.toThrow();
+  });
+
+  test('add rejects it, persists nothing, and snapshots and reopening still work', async () => {
+    const dir = await dataFolder();
+    const db = await open(dir);
+    await db.add.user({ name: 'fine' });
+    await expect(db.add.user(JSON.parse('{"a":1,"a<!M>":{}}'))).rejects.toThrow(/ends in a type tag/);
+    const doc = await db.add.user({ name: 'edit' });
+    doc.extra = JSON.parse('{"deep":{"a<!M>":{"x":1}}}');
+    await expect(doc.save()).rejects.toThrow(/ends in a type tag/);
+    await expect(db.set.user({ $ID: doc.$ID, name: 'x', 'b<!D>': 1 })).rejects.toThrow(/ends in a type tag/);
+    expect((await db.get.userS()).length).toBe(2);
+    await db._store.createSnapshot();
+    await db.disconnect();
+    const again = await open(dir);
+    expect((await again.get.userS()).map((u) => u.name).sort()).toEqual(['edit', 'fine']);
+    await again.disconnect();
+  });
+});
+
 describe('Existing behaviour is unchanged', () => {
   test('cycles, shared nodes and typed values still round-trip', () => {
     const a = { name: 'A', when: new Date(5), tags: new Set([1, 2]), map: new Map([['k', 'v']]), re: /x/i };
